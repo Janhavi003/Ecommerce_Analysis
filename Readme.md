@@ -1,15 +1,8 @@
-# 🎯 PySpark E-commerce Sales Analysis on AWS
+# 🎯 PySpark E-commerce Sales Analysis
 
 ## 📌 Overview
-This project analyzes e-commerce sales data using **PySpark** on **AWS EMR**. It processes large datasets to extract insights on **top-selling products and revenue trends**.
+This project analyzes e-commerce sales data using **PySpark**. It processes large datasets to extract insights on **top-selling products and revenue trends**.
 
-## 🚀 Features
-- **PySpark on AWS EMR** for distributed data processing  
-- **S3 for data storage** and **results output**  
-- **Spark SQL for querying e-commerce sales data**  
-- **AWS CLI for job execution**  
-
----
 
 ---
 
