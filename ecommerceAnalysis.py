@@ -1,45 +1,64 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum, avg, count
+from pyspark.sql.functions import col
+from pyspark.sql.types import IntegerType
+from pyspark.ml.recommendation import ALS
+from pyspark.ml.evaluation import RegressionEvaluator
+from pyspark.ml.feature import StringIndexer
 
-# ✅ Step 1: Create a Spark Session
-spark = SparkSession.builder.appName("EcommerceSalesAnalysis").getOrCreate()
+# Initialize Spark session
+spark = SparkSession.builder.appName("EcommerceAnalysis").getOrCreate()
 
-# ✅ Step 2: Load the dataset
-df = spark.read.csv("data/ecommerce_sales.csv", header=True, inferSchema=True)
+# Read the dataset
+df = spark.read.csv(r"E:\Kalvium\Semester-4\PySpark_Projects\Ecommerce_Analysis\data\ecommerce_sales.csv", header=True, inferSchema=True)
 
-# ✅ Step 3: Display initial data
-print("🔹 Sample Data:")
+# Show first few rows to check the data
 df.show(5)
 
-# ✅ Step 4: Data Cleaning
-df = df.dropna()  # Remove null values
-df = df.withColumnRenamed("InvoiceNo", "Invoice_ID")
-df = df.withColumnRenamed("StockCode", "Product_ID")
+# Convert CustomerID to IntegerType (StockCode needs to be indexed as it is likely a string)
+df = df.withColumn("CustomerID", col("CustomerID").cast(IntegerType()))
 
-# ✅ Step 5: Register DataFrame as SQL Table
-df.createOrReplaceTempView("sales")
+# Use StringIndexer to convert StockCode to a numeric type
+indexer = StringIndexer(inputCol="StockCode", outputCol="StockCodeIndex")
+df = indexer.fit(df).transform(df)
 
-# ✅ Step 6: Analysis Queries
-print("\n🔹 Top 10 Best-Selling Products:")
-spark.sql("""
-    SELECT Product_ID, COUNT(*) as Total_Sales
-    FROM sales
-    GROUP BY Product_ID
-    ORDER BY Total_Sales DESC
-    LIMIT 10
-""").show()
+# Create the 'Total_Sales' column (assuming it's Quantity * UnitPrice)
+df = df.withColumn("Total_Sales", col("Quantity") * col("UnitPrice"))
 
-print("\n🔹 Total Revenue by Country:")
-spark.sql("""
-    SELECT Country, SUM(UnitPrice * Quantity) as Total_Revenue
-    FROM sales
-    GROUP BY Country
-    ORDER BY Total_Revenue DESC
-""").show()
+# Drop rows with null values in important columns
+df = df.dropna(subset=["StockCodeIndex", "CustomerID", "Total_Sales"])
 
-# ✅ Step 7: Save Processed Data
-df.write.csv("output/cleaned_ecommerce_sales.csv", header=True)
+# Check the schema to ensure the columns are numeric
+df.printSchema()
 
-# ✅ Stop Spark Session
+# Split the dataset into training and test sets (80% training, 20% test)
+(training, test) = df.randomSplit([0.8, 0.2], seed=1234)
+
+# Initialize the ALS model
+als = ALS(userCol="CustomerID", itemCol="StockCodeIndex", ratingCol="Total_Sales", nonnegative=True, implicitPrefs=False)
+
+# Fit the model on the training data
+model = als.fit(training)
+
+# Make predictions on the test data
+predictions = model.transform(test)
+
+# Show some predictions
+predictions.show(5)
+
+# Evaluate the model using RMSE (Root Mean Squared Error)
+evaluator = RegressionEvaluator(predictionCol="prediction", labelCol="Total_Sales", metricName="rmse")
+rmse = evaluator.evaluate(predictions)
+print(f"Root-mean-square error (RMSE) on test data = {rmse}")
+
+# Show top 10 best-selling products (adjust the aggregation if needed)
+top_products = df.groupBy("StockCodeIndex").sum("Total_Sales").withColumnRenamed("sum(Total_Sales)", "Total_Sales") \
+    .orderBy(col("Total_Sales").desc()).limit(10)
+top_products.show()
+
+# Show total revenue by country
+revenue_by_country = df.groupBy("Country").sum("Total_Sales").withColumnRenamed("sum(Total_Sales)", "Total_Revenue") \
+    .orderBy(col("Total_Revenue").desc())
+revenue_by_country.show()
+
+# Stop the Spark session
 spark.stop()
-print("✅ Analysis Completed & Results Saved!")
